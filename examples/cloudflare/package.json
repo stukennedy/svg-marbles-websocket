@@ -1,0 +1,20 @@
+{
+  "name": "svg-marbles-websocket-cloudflare",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --assets ./assets",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "tailwind": "bunx @tailwindcss/cli -i ./src/input.css -o ./assets/output.css --watch"
+  },
+  "dependencies": {
+    "@tailwindcss/cli": "^4.1.11",
+    "hono": "^4.8.9",
+    "rxjs": "^7.8.2",
+    "svg-marbles-websocket": "file:../../",
+    "tailwindcss": "^4.1.11"
+  },
+  "devDependencies": {
+    "wrangler": "^4.4.0"
+  }
+}
