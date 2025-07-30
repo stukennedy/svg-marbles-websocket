@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "marbles",
+  "name": "ws-marbles",
   "main": "src/index.ts",
   "compatibility_date": "2025-03-17",
   "compatibility_flags": ["nodejs_compat"]

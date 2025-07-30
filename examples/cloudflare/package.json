@@ -11,7 +11,7 @@
     "@tailwindcss/cli": "^4.1.11",
     "hono": "^4.8.9",
     "rxjs": "^7.8.2",
-    "svg-marbles-websocket": "file:../../",
+    "ws-marbles": "file:../../",
     "tailwindcss": "^4.1.11"
   },
   "devDependencies": {

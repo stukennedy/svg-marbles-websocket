@@ -1,5 +1,5 @@
 import { Context } from "hono";
-import { ObservableWebSocketBridge } from "svg-marbles-websocket";
+import { ObservableWebSocketBridge } from "ws-marbles";
 import { interval, merge, of, throwError } from "rxjs";
 import { map, take, delay, concatMap, scan } from "rxjs/operators";
 
