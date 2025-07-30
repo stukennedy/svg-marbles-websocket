@@ -1,4 +1,4 @@
-import { Observable, Subscription } from 'rxjs';
+import { Observable, Subscription, Subject } from "rxjs";
 import {
   WebSocketMessage,
   ClientMessage,
@@ -8,7 +8,7 @@ import {
   StreamInfoMessage,
   StreamsListMessage,
   isClientMessage
-} from './websocket-protocol';
+} from "./websocket-protocol";
 
 export interface StreamConfig {
   streamId: string;
@@ -25,8 +25,10 @@ export interface WebSocketConnection {
 
 export class ObservableWebSocketBridge {
   private streams: Map<string, StreamConfig> = new Map();
-  private subscriptions: Map<string, Map<WebSocketConnection, Subscription>> = new Map();
+  private subscriptions: Map<string, Map<WebSocketConnection, Subscription>> =
+    new Map();
   private connections: Set<WebSocketConnection> = new Set();
+  private subjectSubscriptions: Map<string, Subscription> = new Map(); // Track Subject subscriptions
 
   constructor() {}
 
@@ -36,7 +38,18 @@ export class ObservableWebSocketBridge {
   public registerStream(config: StreamConfig): void {
     this.streams.set(config.streamId, config);
     this.subscriptions.set(config.streamId, new Map());
-    
+
+    // If it's a Subject, subscribe immediately to keep it "hot"
+    if (config.observable instanceof Subject) {
+      const subjectSub = config.observable.subscribe({
+        // Empty subscription to keep the Subject active
+        next: () => {},
+        error: () => {},
+        complete: () => {}
+      });
+      this.subjectSubscriptions.set(config.streamId, subjectSub);
+    }
+
     // Notify all connected clients about the new stream
     this.broadcastStreamsList();
   }
@@ -48,10 +61,17 @@ export class ObservableWebSocketBridge {
     const streamSubs = this.subscriptions.get(streamId);
     if (streamSubs) {
       // Unsubscribe all clients from this stream
-      streamSubs.forEach(sub => sub.unsubscribe());
+      streamSubs.forEach((sub) => sub.unsubscribe());
       this.subscriptions.delete(streamId);
     }
-    
+
+    // Clean up Subject subscription if it exists
+    const subjectSub = this.subjectSubscriptions.get(streamId);
+    if (subjectSub) {
+      subjectSub.unsubscribe();
+      this.subjectSubscriptions.delete(streamId);
+    }
+
     this.streams.delete(streamId);
     this.broadcastStreamsList();
   }
@@ -61,7 +81,7 @@ export class ObservableWebSocketBridge {
    */
   public handleConnection(ws: WebSocketConnection): void {
     this.connections.add(ws);
-    
+
     // Send initial streams list
     this.sendStreamsList(ws);
   }
@@ -71,7 +91,7 @@ export class ObservableWebSocketBridge {
    */
   public handleDisconnection(ws: WebSocketConnection): void {
     this.connections.delete(ws);
-    
+
     // Clean up all subscriptions for this connection
     this.subscriptions.forEach((streamSubs, streamId) => {
       const sub = streamSubs.get(ws);
@@ -88,25 +108,28 @@ export class ObservableWebSocketBridge {
   public handleMessage(ws: WebSocketConnection, message: string): void {
     try {
       const parsed: WebSocketMessage = JSON.parse(message);
-      
+
       if (!isClientMessage(parsed)) {
-        console.warn('Received non-client message:', parsed);
+        console.warn("Received non-client message:", parsed);
         return;
       }
 
       this.handleClientMessage(ws, parsed);
     } catch (error) {
-      console.error('Error parsing WebSocket message:', error);
+      console.error("Error parsing WebSocket message:", error);
     }
   }
 
-  private handleClientMessage(ws: WebSocketConnection, message: ClientMessage): void {
+  private handleClientMessage(
+    ws: WebSocketConnection,
+    message: ClientMessage
+  ): void {
     switch (message.type) {
-      case 'subscribe':
+      case "subscribe":
         this.handleSubscribe(ws, message.streamId);
         break;
-        
-      case 'unsubscribe':
+
+      case "unsubscribe":
         this.handleUnsubscribe(ws, message.streamId);
         break;
     }
@@ -133,7 +156,7 @@ export class ObservableWebSocketBridge {
 
     // Send stream info
     const infoMessage: StreamInfoMessage = {
-      type: 'stream-info',
+      type: "stream-info",
       streamId,
       name: streamConfig.name,
       description: streamConfig.description,
@@ -145,7 +168,7 @@ export class ObservableWebSocketBridge {
     const subscription = streamConfig.observable.subscribe({
       next: (value) => {
         const message: NextMessage = {
-          type: 'next',
+          type: "next",
           streamId,
           value,
           timestamp: Date.now()
@@ -154,24 +177,24 @@ export class ObservableWebSocketBridge {
       },
       error: (error) => {
         const message: ErrorMessage = {
-          type: 'error',
+          type: "error",
           streamId,
           error: error.toString(),
           timestamp: Date.now()
         };
         this.sendMessage(ws, message);
-        
+
         // Clean up subscription
         streamSubs.delete(ws);
       },
       complete: () => {
         const message: CompleteMessage = {
-          type: 'complete',
+          type: "complete",
           streamId,
           timestamp: Date.now()
         };
         this.sendMessage(ws, message);
-        
+
         // Clean up subscription
         streamSubs.delete(ws);
       }
@@ -193,26 +216,32 @@ export class ObservableWebSocketBridge {
     }
   }
 
-  private sendMessage(ws: WebSocketConnection, message: WebSocketMessage): void {
-    if (ws.readyState === 1) { // OPEN
+  private sendMessage(
+    ws: WebSocketConnection,
+    message: WebSocketMessage
+  ): void {
+    if (ws.readyState === 1) {
+      // OPEN
       try {
         ws.send(JSON.stringify(message));
       } catch (error) {
-        console.error('Error sending WebSocket message:', error);
+        console.error("Error sending WebSocket message:", error);
       }
     }
   }
 
   private sendStreamsList(ws: WebSocketConnection): void {
-    const streams = Array.from(this.streams.entries()).map(([streamId, config]) => ({
-      streamId,
-      name: config.name,
-      description: config.description,
-      active: true
-    }));
+    const streams = Array.from(this.streams.entries()).map(
+      ([streamId, config]) => ({
+        streamId,
+        name: config.name,
+        description: config.description,
+        active: true
+      })
+    );
 
     const message: StreamsListMessage = {
-      type: 'streams-list',
+      type: "streams-list",
       timestamp: Date.now(),
       streams
     };
@@ -221,7 +250,7 @@ export class ObservableWebSocketBridge {
   }
 
   private broadcastStreamsList(): void {
-    this.connections.forEach(ws => {
+    this.connections.forEach((ws) => {
       this.sendStreamsList(ws);
     });
   }

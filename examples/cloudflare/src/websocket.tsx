@@ -1,10 +1,67 @@
 import { Context } from "hono";
 import { ObservableWebSocketBridge } from "ws-marbles";
-import { interval, merge, of, throwError } from "rxjs";
+import {
+  interval,
+  merge,
+  of,
+  throwError,
+  Subject,
+  BehaviorSubject
+} from "rxjs";
 import { map, take, delay, concatMap, scan } from "rxjs/operators";
 
 // Create a singleton bridge instance
 const bridge = new ObservableWebSocketBridge();
+
+// Create Subject instances for testing
+const subjectTest = new Subject<string>();
+const behaviorSubjectTest = new BehaviorSubject<number>(42);
+
+// Track which Subject streams have been started
+const startedSubjects = new Set<string>();
+
+// Function to start emissions for a specific Subject stream
+function startSubjectEmissionsForStream(streamId: string) {
+  if (startedSubjects.has(streamId)) {
+    return; // Already started
+  }
+
+  startedSubjects.add(streamId);
+  console.log(`Starting emissions for ${streamId}...`);
+
+  switch (streamId) {
+    case "subject-test":
+      subjectTest.next("Hello from Subject!");
+      setTimeout(() => subjectTest.next("Second emission"), 1000);
+      setTimeout(() => subjectTest.next("Third emission"), 2000);
+      setTimeout(() => subjectTest.complete(), 5000);
+      break;
+
+    case "behavior-subject-test":
+      behaviorSubjectTest.next(100);
+      setTimeout(() => behaviorSubjectTest.next(200), 1500);
+      setTimeout(() => behaviorSubjectTest.next(300), 3000);
+      break;
+
+    case "manual-subject":
+      const manualSubject = bridge.getStreams().get("manual-subject")
+        ?.observable as Subject<number>;
+      if (manualSubject) {
+        manualSubject.next(1);
+        setTimeout(() => manualSubject.next(2), 1200);
+        setTimeout(() => manualSubject.next(3), 2400);
+        setTimeout(() => manualSubject.complete(), 6000);
+      }
+      break;
+  }
+}
+
+// Function to start Subject emissions (called when WebSocket connects)
+function startSubjectEmissions() {
+  console.log(
+    "WebSocket connected - Subjects are ready to emit when subscribed to"
+  );
+}
 
 // Register example Observable streams
 function registerExampleStreams() {
@@ -77,6 +134,31 @@ function registerExampleStreams() {
       concatMap((i) => of(i).pipe(delay(1000 - i * 100)))
     )
   });
+
+  // 7. Subject Test - This should now work with the fix!
+  bridge.registerStream({
+    streamId: "subject-test",
+    name: "Subject Test",
+    description: "Testing Subject emissions (should work now!)",
+    observable: subjectTest
+  });
+
+  // 8. BehaviorSubject Test - This should work as before
+  bridge.registerStream({
+    streamId: "behavior-subject-test",
+    name: "BehaviorSubject Test",
+    description: "Testing BehaviorSubject emissions",
+    observable: behaviorSubjectTest
+  });
+
+  // 9. Subject with manual emissions
+  const manualSubject = new Subject<number>();
+  bridge.registerStream({
+    streamId: "manual-subject",
+    name: "Manual Subject",
+    description: "Subject with manual emissions",
+    observable: manualSubject
+  });
 }
 
 // Initialize streams on first import
@@ -104,6 +186,16 @@ export const onWebSocketUpgrade = (c: Context) => {
 
     try {
       const message = JSON.parse(event.data);
+
+      // If this is a subscribe message for a Subject stream, start emissions
+      if (
+        message.type === "subscribe" &&
+        ["subject-test", "behavior-subject-test", "manual-subject"].includes(
+          message.streamId
+        )
+      ) {
+        startSubjectEmissionsForStream(message.streamId);
+      }
 
       bridge.handleMessage(
         {
@@ -136,6 +228,9 @@ export const onWebSocketUpgrade = (c: Context) => {
       close: () => server.close(),
       readyState: server.readyState
     });
+
+    // Start Subject emissions when first WebSocket connects
+    startSubjectEmissions();
   });
 
   server.addEventListener("close", () => {
